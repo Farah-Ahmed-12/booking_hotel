@@ -104,11 +104,7 @@ elif page == "Analysis":
                 ]
             })
 
-            fig = px.pie(
-                booking_status,
-                values='count',
-                names='status',
-                hole=0.4,
+            fig = px.pie(booking_status,values='count',names='status',hole=0.4,
                 title='Booking Status Distribution',
                 color_discrete_sequence=px.colors.qualitative.Set2
             )
@@ -117,22 +113,19 @@ elif page == "Analysis":
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            seg = filtered_df['marketsegment'].value_counts().reset_index()
-            seg.columns = ['marketsegment', 'count']
+            booked_df = filtered_df[filtered_df['bookingscheckedin'] > 0]
+            seg = booked_df['marketsegment'].value_counts().reset_index()
+            seg.columns = ['marketsegment', 'bookingcount']
 
-            fig = px.bar(
-                seg,
-                x='marketsegment',
-                y='count',
+            fig = px.bar(seg,x='marketsegment',y='bookingcount',
                 title='Market Segment Distribution',
                 color='marketsegment',
                 color_discrete_sequence=px.colors.qualitative.Set3
             )
-
             st.plotly_chart(fig, use_container_width=True)
 
-        has_booking = df[(df['bookingscheckedin'] > 0) |(df['bookingscanceled'] > 0) |(df['bookingsnoshowed'] > 0)]
-        no_booking = df[(df['bookingscheckedin'] == 0) &(df['bookingscanceled'] == 0) & (df['bookingsnoshowed'] == 0)]
+        has_booking = filtered_df[(filtered_df['bookingscheckedin'] > 0) |(filtered_df['bookingscanceled'] > 0) |(filtered_df['bookingsnoshowed'] > 0)]
+        no_booking = filtered_df[(filtered_df['bookingscheckedin'] == 0) &(filtered_df['bookingscanceled'] == 0) & (filtered_df['bookingsnoshowed'] == 0)]
 
         booking_summary = pd.DataFrame({
             'status': ['Booking', 'No Booking'],
@@ -140,7 +133,6 @@ elif page == "Analysis":
         })
 
         fig = px.pie( booking_summary,values='count',names='status',title='Customer Engagement (Booking vs No Booking)',hole=0.4)
-
         fig.update_traces(textinfo='percent+value')
         st.plotly_chart(fig, use_container_width=True)
 
@@ -152,14 +144,14 @@ elif page == "Analysis":
         st.subheader("Cancellation Analysis")
 
         #max_val = filtered_df['averageleadtime'].max()
-
         bins = [0, 30, 60, 90, 180, 365, 100000]
         labels = ['0-30', '31-60', '61-90', '91-180', '181-365', '365+']
 
         filtered_df['lead_bin'] = pd.cut(
             filtered_df['averageleadtime'],
             bins=bins,
-            labels=labels
+            labels=labels,
+            include_lowest=True #(min , max values)
         )
         cancel_trend = filtered_df.groupby('lead_bin')['bookingscanceled'].mean().reset_index()
         fig = px.line(
@@ -174,26 +166,22 @@ elif page == "Analysis":
         fig.update_layout(
         xaxis_title='Lead Time (Days Before Arrival)',
         yaxis_title='Avg Number of Cancellations')
-
         st.plotly_chart(fig, use_container_width=True)
-
 
 
         st.markdown("---")
 
 
-
-
-        rev = df.groupby('marketsegment')['total_revenue'].mean().reset_index()
+        rev = filtered_df.groupby('marketsegment')['total_revenue'].mean().reset_index()
         seg_cancel = (
             filtered_df.groupby('marketsegment')['bookingscanceled'].sum() /
             filtered_df.groupby('marketsegment')['total_bookings'].sum() * 100
         ).reset_index()
 
         seg_cancel.columns = ['marketsegment', 'cancel_rate']
-        merged = rev.merge(seg_cancel, on='marketsegment')
+        merged = rev.merge(seg_cancel, on='marketsegment') #(one table)
 
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig = make_subplots(specs=[[{"secondary_y": True}]]) # (2 y axis char)
 
         fig.add_trace(
             go.Scatter(
@@ -247,7 +235,6 @@ elif page == "Analysis":
         fig.update_traces(marker_color='#2ecc71', selector=dict(name='conversion_rate'))
         fig.update_traces(marker_color='#e74c3c', selector=dict(name='cancel_rate'))
         fig.update_traces(marker_color='#f39c12', selector=dict(name='noshow_rate'))
-
         fig.update_traces(texttemplate='%{y:.1f}%', textposition='outside')
         fig.update_layout(yaxis_title='Percentage')
         st.plotly_chart(fig, use_container_width=True)
@@ -262,16 +249,12 @@ elif page == "Analysis":
         with col1:
             fig = px.bar(
                 x=['Lodging', 'OtherRevenue'],
-                y=[
-                    filtered_df['lodgingrevenue'].sum(),
-                    filtered_df['otherrevenue'].sum()
-                ],
+                y=[filtered_df['lodgingrevenue'].sum(),filtered_df['otherrevenue'].sum()],
                 color=['Lodging', 'OtherRevenue'],
                 color_discrete_sequence=['#2ecc71', '#e74c3c'],
                 labels={'x': 'Revenue Type','y': 'Total Revenue'},
                 title='Revenue Sources'
             )
-
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
@@ -303,17 +286,47 @@ elif page == "Analysis":
 
         st.plotly_chart(fig, use_container_width=True)
 
-        fig = px.scatter(
-            filtered_df,
-            x='roomnights',
-            y='total_revenue',
-            trendline='ols',
-            opacity=0.4,
+        fig = px.scatter(filtered_df,x='roomnights',y='total_revenue',trendline='ols',opacity=0.4,
             title='Room Nights vs Revenue',
             color_discrete_sequence=['#e74c3c']
         )
-
         st.plotly_chart(fig, use_container_width=True)
+
+
+        num_df = filtered_df.select_dtypes(include='number')
+        corr = num_df.corr()
+        revenue_corr = corr['total_revenue'].sort_values(ascending=False)
+        revenue_corr = revenue_corr.drop('total_revenue')
+        top_features = revenue_corr
+        fig = px.bar( x=top_features.values,y=top_features.index,orientation='h',
+        color=top_features.values,
+        color_continuous_scale='RdBu',
+        title="What affects Total Revenue")
+        st.plotly_chart(fig, use_container_width=True)
+
+        def cohort_group(x):
+            if x <= 30:
+                return '0-30 days (New)'
+            elif x <= 180:
+                return '1-6 months'
+            elif x <= 365:
+                return '6-12 months'
+            else:
+                return '1+ year (Old)'
+
+        filtered_df['cohort'] = filtered_df['dayssincefirststay'].apply(cohort_group)
+        cohort_analysis = filtered_df.groupby('cohort').agg({
+        'total_revenue': 'mean',
+        'total_bookings': 'mean',
+        'revenue_per_night': 'mean'}).reset_index()
+        fig = px.bar(
+        cohort_analysis,
+        x='cohort',
+        y='total_revenue',
+        title='Revenue by Customer Cohort')
+        st.plotly_chart(fig, use_container_width=True)
+
+
 
 
     with tab4:
@@ -325,7 +338,7 @@ elif page == "Analysis":
             "srnearelevator","srawayfromelevator","srnoalcoholinminibar","srquietroom"
         ]
 
-        counts = df[sr_cols].sum().sort_values()
+        counts = filtered_df[sr_cols].sum().sort_values()
 
         fig = px.bar(
             x=counts.values,
@@ -339,6 +352,19 @@ elif page == "Analysis":
         st.plotly_chart(fig, use_container_width=True)
 
 
+        nat_counts = booked_df['nationality'].value_counts().reset_index()
+        nat_counts.columns = ['nationality', 'count']
+
+        fig = px.choropleth(
+            nat_counts,
+            locations='nationality',
+            color='count',
+            color_continuous_scale='Blues',
+            title='Customer Distribution by Nationality',
+            locationmode='ISO-3'
+        )
+        fig.update_layout(geo=dict(showframe=False))
+        st.plotly_chart(fig, use_container_width=True)
 
 
 
